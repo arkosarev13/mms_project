@@ -66,7 +66,8 @@ static void MX_USART6_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+uint32_t counter_tx = 0;
+uint32_t counter_rx = 0;
 /* USER CODE END 0 */
 
 /**

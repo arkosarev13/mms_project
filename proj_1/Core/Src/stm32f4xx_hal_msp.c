@@ -129,6 +129,11 @@ void HAL_ETH_MspInit(ETH_HandleTypeDef* heth)
     GPIO_InitStruct.Alternate = GPIO_AF11_ETH;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+    /* ETH interrupt Init */
+    HAL_NVIC_SetPriority(ETH_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(ETH_IRQn);
+    HAL_NVIC_SetPriority(ETH_WKUP_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(ETH_WKUP_IRQn);
     /* USER CODE BEGIN ETH_MspInit 1 */
 
     /* USER CODE END ETH_MspInit 1 */
@@ -170,6 +175,9 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef* heth)
 
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13);
 
+    /* ETH interrupt DeInit */
+    HAL_NVIC_DisableIRQ(ETH_IRQn);
+    HAL_NVIC_DisableIRQ(ETH_WKUP_IRQn);
     /* USER CODE BEGIN ETH_MspDeInit 1 */
 
     /* USER CODE END ETH_MspDeInit 1 */

@@ -46,7 +46,8 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-
+extern uint32_t counter_tx;
+extern uint32_t counter_rx;
 /* USER CODE END EM */
 
 /* Exported functions prototypes ---------------------------------------------*/
