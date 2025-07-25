@@ -23,8 +23,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "main.h"
-#include "nx_stm32_eth_driver.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -67,9 +65,8 @@ UCHAR adc_stack[ADC_STACK_SIZE];
 
 extern ULONG IP_ADDR;
 extern ULONG IP_MASK;
-
-extern float mcu_temperature;
-extern float vdd_voltage;
+extern volatile float mcu_temperature;
+extern volatile float vdd_voltage;
 extern ADC_HandleTypeDef hadc1;
 extern uint32_t adc_data[];
 extern uint8_t adc_flag;
@@ -141,8 +138,14 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
 	tx_thread_create(&http_thread, "HTTP thread", http_thread_entry, 0,
 			http_stack, HTTP_SERVER_STACK_SIZE, 4, 4, TX_NO_TIME_SLICE,
 			TX_AUTO_START);
+	HAL_UART_Transmit(&huart6, tx_buffer,
+			sprintf((char*) tx_buffer, "HTTP thread create\n"),
+			HAL_MAX_DELAY);
 	tx_thread_create(&adc_thread, "ADC thread", adc_thread_entry, 0, adc_stack,
 			ADC_STACK_SIZE, 3, 3, TX_NO_TIME_SLICE, TX_AUTO_START);
+	HAL_UART_Transmit(&huart6, tx_buffer,
+			sprintf((char*) tx_buffer, "ADC thread create\n"),
+			HAL_MAX_DELAY);
   /* USER CODE END MX_NetXDuo_Init */
 
   return ret;
@@ -152,11 +155,14 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
 void http_thread_entry(ULONG thread_input) {
 	CHAR dynamic_page[2048];
 	uint8_t flag = 0;
+	uint8_t tx_buffer[64];
 	//UINT status;
 	nx_tcp_socket_create(&ip, &tcp_server_socket, "HTTP Server Socket",
 			NX_IP_NORMAL, NX_FRAGMENT_OKAY, NX_IP_TIME_TO_LIVE, 512, NX_NULL,
 			NX_NULL);
-
+	HAL_UART_Transmit(&huart6, tx_buffer,
+			sprintf((char*) tx_buffer, "HTTP Server Socket create\n"),
+			HAL_MAX_DELAY);
 	nx_tcp_server_socket_listen(&ip, HTTP_SERVER_PORT, &tcp_server_socket, 5,
 	NX_NULL);
 	while (1) {
@@ -169,33 +175,54 @@ void http_thread_entry(ULONG thread_input) {
 		NX_PACKET *packet;
 		if (nx_tcp_socket_receive(&tcp_server_socket, &packet,
 		TX_WAIT_FOREVER) == NX_SUCCESS) {
+			HAL_UART_Transmit(&huart6, tx_buffer,
+					sprintf((char*) tx_buffer,
+							"Incoming reques to the http server\n"),
+					HAL_MAX_DELAY);
 			CHAR *data = (CHAR*) packet->nx_packet_prepend_ptr;
 			if (strncmp(data, "GET /setip?", 11) == 0) {
+				HAL_UART_Transmit(&huart6, tx_buffer,
+						sprintf((char*) tx_buffer,
+								"Request for a shift ip address and subnet mask\n"),
+						HAL_MAX_DELAY);
 				CHAR ip_str[16] = { 0 }, mask_str[16] = { 0 }, pass[16] = { 0 };
 				parse_query(data + 11, ip_str, mask_str, pass);
-				HAL_UART_Transmit(&huart6, (const uint8_t*) ip_str, 16,
-				HAL_MAX_DELAY);
-				HAL_UART_Transmit(&huart6, (const uint8_t*) mask_str, 16,
-				HAL_MAX_DELAY);
-				HAL_UART_Transmit(&huart6, (const uint8_t*) pass, 16,
-				HAL_MAX_DELAY);
 				if (strcmp(pass, "admin") == 0) {
+					HAL_UART_Transmit(&huart6, tx_buffer,
+							sprintf((char*) tx_buffer,
+									"The password successfuly\n"),
+							HAL_MAX_DELAY);
 					if (ip_string_to_ulong(ip_str, &ip_addr) == NX_SUCCESS
 							&& ip_string_to_ulong(mask_str, &mask_addr)
 									== NX_SUCCESS) {
+						HAL_UART_Transmit(&huart6, tx_buffer,
+								sprintf((char*) tx_buffer,
+										"IP address and subnet mask is valid\n"),
+								HAL_MAX_DELAY);
 						send_http_response(&tcp_server_socket,
 								"HTTP/1.1 200 OK\r\n\r\nIP and subnet change.");
 						flag_change_ip_and_mask = 1;
 						flag = 1;
 					} else {
+						HAL_UART_Transmit(&huart6, tx_buffer,
+								sprintf((char*) tx_buffer,
+										"IP address and subnet mask is not valid\n"),
+								HAL_MAX_DELAY);
 						send_http_response(&tcp_server_socket,
 								"HTTP/1.1 400 Bad Request\r\n\r\nError ip/subnet mask.");
 					}
 				} else {
+					HAL_UART_Transmit(&huart6, tx_buffer,
+							sprintf((char*) tx_buffer,
+									"The password not successfuly\n"),
+							HAL_MAX_DELAY);
 					send_http_response(&tcp_server_socket,
 							"HTTP/1.1 403 Forbidden\r\n\r\nIncorrect password.");
 				}
 			} else {
+				HAL_UART_Transmit(&huart6, tx_buffer,
+						sprintf((char*) tx_buffer, "Default request\n"),
+						HAL_MAX_DELAY);
 				int whole_temp = (int) mcu_temperature;
 				int frac_temp = (int) ((mcu_temperature - whole_temp) * 1000); // 3 знака после запятой
 				int whole_voltage = (int) vdd_voltage;
@@ -228,18 +255,15 @@ void http_thread_entry(ULONG thread_input) {
 								"</body></html>", whole_temp, frac_temp,
 						whole_voltage, frac_voltage);
 				send_http_response(&tcp_server_socket, dynamic_page);
-				uint8_t tx_buffer[64];
-				HAL_UART_Transmit(&huart6, (const uint8_t*) tx_buffer,
-						sprintf((char*) tx_buffer,
-								"Vdd voltage = %d.%03d\nTemperature = %d.%03d\n\n",
-								whole_voltage, frac_voltage, whole_temp,
-								frac_temp), HAL_MAX_DELAY);
 			}
 
 			nx_packet_release(packet);
 		}
 
 		nx_tcp_socket_disconnect(&tcp_server_socket, TX_WAIT_FOREVER);
+		HAL_UART_Transmit(&huart6, (const uint8_t*) tx_buffer,
+				sprintf((char*) tx_buffer, "Socket disconnect\n"),
+				HAL_MAX_DELAY);
 		nx_tcp_server_socket_unaccept(&tcp_server_socket);
 		nx_tcp_server_socket_relisten(&ip, 80, &tcp_server_socket);
 	}
@@ -247,15 +271,26 @@ void http_thread_entry(ULONG thread_input) {
 
 VOID parse_query(CHAR *query, CHAR *ip, CHAR *mask, CHAR *pass) {
 	CHAR *ptr;
-	if ((ptr = strstr(query, "ip=")))
+	if ((ptr = strstr(query, "ip="))) {
 		sscanf(ptr, "ip=%15[^&]", ip);
-	if ((ptr = strstr(query, "mask=")))
+	}
+	if ((ptr = strstr(query, "mask="))) {
 		sscanf(ptr, "mask=%15[^&]", mask);
-	if ((ptr = strstr(query, "pass=")))
+	}
+	if ((ptr = strstr(query, "pass="))) {
 		sscanf(ptr, "pass=%5[^&]", pass);
+	}
+	uint8_t tx_buffer[64];
+	HAL_UART_Transmit(&huart6, (const uint8_t*) tx_buffer,
+			sprintf((char*) tx_buffer, "Parsing GET request\n"),
+			HAL_MAX_DELAY);
 }
 
 VOID send_http_response(NX_TCP_SOCKET *socket, CHAR *data) {
+	uint8_t tx_buffer[64];
+	HAL_UART_Transmit(&huart6, (const uint8_t*) tx_buffer,
+			sprintf((char*) tx_buffer, "Send HTML page\n"),
+			HAL_MAX_DELAY);
 	NX_PACKET *packet;
 	if (nx_packet_allocate(&packet_pool, &packet, NX_TCP_PACKET,
 	TX_WAIT_FOREVER) != NX_SUCCESS)

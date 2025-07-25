@@ -31,8 +31,13 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "tx_api.h"
-#include "nx_api.h"
+#include "tx_api.h" //библиотека для работы с ThreadX
+#include "nx_api.h" //библиотека для работы с NetXDuo
+#include "stdio.h" //вспомогательная библиотека
+#include "string.h" //вспомогательная библиотека
+#include "app_threadx.h" //библиотека для работы с ThreadX
+#include "mem.h" //библиотека для чтения и записи в EEPROM
+#include "nx_stm32_eth_driver.h" //библиотека драйвера уровня eth and phy
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/

@@ -23,8 +23,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "main.h"
-#include "stdio.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,7 +33,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define HEARTBEAT_STACK_SIZE 1024
-#define EEPROM_ADDR 0xA0  // или 0x50 << 1
 #define MEM_STACK_SIZE 1024
 /* USER CODE END PD */
 
@@ -51,6 +48,7 @@ UCHAR heartbeat_stack[HEARTBEAT_STACK_SIZE];
 
 TX_THREAD mem_thread;
 UCHAR mem_stack[MEM_STACK_SIZE];
+
 extern IWDG_HandleTypeDef hiwdg;
 extern I2C_HandleTypeDef hi2c1;
 extern uint8_t flag_change_ip_and_mask;
@@ -62,6 +60,7 @@ extern ULONG mask_addr;
 /* USER CODE BEGIN PFP */
 void heartbeat_entry(ULONG thread_input);
 void mem_entry(ULONG thread_input);
+
 extern void write_ip_and_mask(ULONG ip_addr, ULONG mask_addr);
 /* USER CODE END PFP */
 
@@ -82,12 +81,12 @@ UINT App_ThreadX_Init(VOID *memory_ptr)
 			heartbeat_stack, HEARTBEAT_STACK_SIZE, 1, 1, TX_NO_TIME_SLICE,
 			TX_AUTO_START);
 	HAL_UART_Transmit(&huart6, tx_buffer,
-			sprintf((char*) tx_buffer, "Heartbeat thread creat\n"),
+			sprintf((char*) tx_buffer, "Heartbeat thread create\n"),
 			HAL_MAX_DELAY);
 	tx_thread_create(&mem_thread, "Mem thread", mem_entry, 0, mem_stack,
 			MEM_STACK_SIZE, 2, 2, TX_NO_TIME_SLICE, TX_AUTO_START);
 	HAL_UART_Transmit(&huart6, tx_buffer,
-			sprintf((char*) tx_buffer, "Mem thread creat\n"),
+			sprintf((char*) tx_buffer, "Mem thread create\n"),
 			HAL_MAX_DELAY);
   /* USER CODE END App_ThreadX_Init */
 
@@ -117,6 +116,11 @@ void heartbeat_entry(ULONG thread_input) {
 	while (1) {
 		HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_13);
 		HAL_IWDG_Refresh(&hiwdg);
+		uint8_t tx_buffer[64];
+		HAL_UART_Transmit(&huart6, tx_buffer,
+				sprintf((char*) tx_buffer,
+						"Reset watchdog timer and led blink\n"),
+				HAL_MAX_DELAY);
 		tx_thread_sleep(100);
 	}
 }
@@ -126,6 +130,10 @@ void mem_entry(ULONG thread_input) {
 		if (flag_change_ip_and_mask == 1) {
 			write_ip_and_mask(ip_addr, mask_addr);
 			flag_change_ip_and_mask = 0;
+			uint8_t tx_buffer[64];
+			HAL_UART_Transmit(&huart6, tx_buffer,
+					sprintf((char*) tx_buffer, "IP address and subnet mask change\n"),
+					HAL_MAX_DELAY);
 		}
 		tx_thread_sleep(50);
 	}

@@ -17,13 +17,10 @@
  */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include "app_threadx.h"
 #include "main.h"
-#include "string.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "stdio.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,8 +34,6 @@
 #define ADC_RESOLUTION 4095.0f
 #define AVG_SLOPE 0.0025f
 #define V25 0.76f
-#define EEPROM_ADDR 0xA0  // или 0x50 << 1
-#define CONFIGURATION_VALUE 1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -65,8 +60,8 @@ UART_HandleTypeDef huart6;
 
 /* USER CODE BEGIN PV */
 uint32_t adc_data[2];
-float mcu_temperature;
-float vdd_voltage;
+volatile float mcu_temperature;
+volatile float vdd_voltage;
 uint8_t adc_flag = 0;
 ULONG IP_ADDR;
 ULONG IP_MASK;
@@ -82,116 +77,33 @@ static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_IWDG_Init(void);
 /* USER CODE BEGIN PFP */
-HAL_StatusTypeDef EEPROM_WriteByte(uint8_t memAddress, uint8_t data) {
-	return HAL_I2C_Mem_Write(&hi2c1, EEPROM_ADDR, memAddress,
-	I2C_MEMADD_SIZE_8BIT, &data, 1, HAL_MAX_DELAY);
-}
 
-// Читаем байт из EEPROM по адресу
-HAL_StatusTypeDef EEPROM_ReadByte(uint8_t memAddress, uint8_t *data) {
-	return HAL_I2C_Mem_Read(&hi2c1, EEPROM_ADDR, memAddress,
-	I2C_MEMADD_SIZE_8BIT, data, 1, HAL_MAX_DELAY);
-}
-
-void write_ip_and_mask(ULONG ip_addr, ULONG mask_addr) {
-	EEPROM_WriteByte(0x00, ((uint8_t) ((ip_addr & (0xFF << 24)) >> 24)));
-	HAL_Delay(10);
-	EEPROM_WriteByte(0x01, ((uint8_t) ((ip_addr & (0xFF << 16)) >> 16)));
-	HAL_Delay(10);
-	EEPROM_WriteByte(0x02, ((uint8_t) ((ip_addr & (0xFF << 8)) >> 8)));
-	HAL_Delay(10);
-	EEPROM_WriteByte(0x03, ((uint8_t) ((ip_addr & (0xFF << 0)) >> 0)));
-	HAL_Delay(10);
-	EEPROM_WriteByte(0x04, ((uint8_t) ((mask_addr & (0xFF << 24)) >> 24)));
-	HAL_Delay(10);
-	EEPROM_WriteByte(0x05, ((uint8_t) ((mask_addr & (0xFF << 16)) >> 16)));
-	HAL_Delay(10);
-	EEPROM_WriteByte(0x06, ((uint8_t) ((mask_addr & (0xFF << 8)) >> 8)));
-	HAL_Delay(10);
-	EEPROM_WriteByte(0x07, ((uint8_t) ((mask_addr & (0xFF << 0)) >> 0)));
-	HAL_Delay(10);
-}
-
-void read_ip_and_mask(ULONG *ip_addr, ULONG *mask_addr) {
-	uint8_t data = 0;
-	*ip_addr = 0;
-	*mask_addr = 0;
-	EEPROM_ReadByte(0x00, &data);
-	*ip_addr |= ((ULONG) data << 24);
-	EEPROM_ReadByte(0x01, &data);
-	*ip_addr |= ((ULONG) data << 16);
-	EEPROM_ReadByte(0x02, &data);
-	*ip_addr |= ((ULONG) data << 8);
-	EEPROM_ReadByte(0x03, &data);
-	*ip_addr |= ((ULONG) data << 0);
-	EEPROM_ReadByte(0x04, &data);
-	*mask_addr |= ((ULONG) data << 24);
-	EEPROM_ReadByte(0x05, &data);
-	*mask_addr |= ((ULONG) data << 16);
-	EEPROM_ReadByte(0x06, &data);
-	*mask_addr |= ((ULONG) data << 8);
-	EEPROM_ReadByte(0x07, &data);
-	*mask_addr |= ((ULONG) data << 0);
-}
-
-void print_ip_ulong_uart(ULONG ip) {
-	char buffer[32];
-
-	uint8_t ip_parts[4];
-	ip_parts[0] = (uint8_t) (ip >> 24);       // старший байт
-	ip_parts[1] = (uint8_t) (ip >> 16);
-	ip_parts[2] = (uint8_t) (ip >> 8);
-	ip_parts[3] = (uint8_t) (ip);             // младший байт
-
-	snprintf(buffer, sizeof(buffer), "%u.%u.%u.%u\r\n", ip_parts[0],
-			ip_parts[1], ip_parts[2], ip_parts[3]);
-
-	HAL_UART_Transmit(&huart6, (uint8_t*) buffer, strlen(buffer),
-	HAL_MAX_DELAY);
-}
-
-void ip_and_mask() {
-	if (CONFIGURATION_VALUE == 0) {
-		IP_ADDR = IP_ADDRESS(192, 168, 0, 13);
-		IP_MASK = IP_ADDRESS(255, 255, 255, 0);
-		write_ip_and_mask(IP_ADDR, IP_MASK);
-		read_ip_and_mask(&IP_ADDR, &IP_MASK);
-		print_ip_ulong_uart(IP_ADDR);
-		print_ip_ulong_uart(IP_MASK);
-	} else {
-		read_ip_and_mask(&IP_ADDR, &IP_MASK);
-		print_ip_ulong_uart(IP_ADDR);
-		print_ip_ulong_uart(IP_MASK);
-	}
-}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
-	uint8_t tx_buffer[64];
-	uint32_t raw_vref = adc_data[0];
-	uint32_t raw_temp = adc_data[1];
-	// Вычисление VDD на основе VREFINT
-	vdd_voltage = (VREFINT_CAL * ADC_RESOLUTION) / (float) raw_vref;
-	HAL_UART_Transmit(&huart6, tx_buffer,
-			sprintf((char*) tx_buffer, "Raw vref = %ld. Raw temp = %ld\n",
-					raw_vref, raw_temp), HAL_MAX_DELAY);
-	// Напряжение на температурном датчике
-	float v_sense = (raw_temp * vdd_voltage) / ADC_RESOLUTION;
-	// Перевод в температуру (по формуле из даташита)
-	mcu_temperature = ((v_sense - V25) / AVG_SLOPE) + 25.0f;
-	int whole_voltage = (int) vdd_voltage;
-	int frac_voltage = (int) ((vdd_voltage - whole_voltage) * 100); // 2 знака после запятой
-	int whole_temp = (int) mcu_temperature;
-	int frac_temp = (int) ((mcu_temperature - whole_temp) * 1000); // 2 знака после запятой
-	uint8_t tx_buff[64];
-	HAL_UART_Transmit(&huart6, (const uint8_t*) tx_buff,
-			sprintf((char*) tx_buff,
-					"Vdd voltage = %d.%02d\nTemperature = %d.%03d\n",
-					whole_voltage, frac_voltage, whole_temp, frac_temp),
-			HAL_MAX_DELAY);
-	adc_flag = 1;
+	if (hadc->Instance == ADC1) {
+		uint8_t tx_buffer[64];
+		HAL_UART_Transmit(&huart6, tx_buffer,
+				sprintf((char*) tx_buffer,
+						"Beginning measurement voltage and temperature\n"),
+				HAL_MAX_DELAY);
+		uint32_t raw_vref = adc_data[0];
+		uint32_t raw_temp = adc_data[1];
+		// Вычисление VDD на основе VREFINT
+		vdd_voltage = (VREFINT_CAL * ADC_RESOLUTION) / (float) raw_vref;
+		// Напряжение на температурном датчике
+		float v_sense = (raw_temp * vdd_voltage) / ADC_RESOLUTION;
+		// Перевод в температуру (по формуле из даташита)
+		mcu_temperature = ((v_sense - V25) / AVG_SLOPE) + 25.0f;
+		uint8_t tx_buff[64];
+		HAL_UART_Transmit(&huart6, (const uint8_t*) tx_buff,
+				sprintf((char*) tx_buff,
+						"VDD voltage and temperature measured\n"),
+				HAL_MAX_DELAY);
+		adc_flag = 1;
+	}
 }
 /* USER CODE END 0 */
 
@@ -230,6 +142,9 @@ int main(void) {
 	MX_I2C1_Init();
 	MX_IWDG_Init();
 	/* USER CODE BEGIN 2 */
+	uint8_t tx_buffer[64];
+	HAL_UART_Transmit(&huart6, tx_buffer,
+			sprintf((char*) tx_buffer, "Getting started\n"), HAL_MAX_DELAY);
 	ip_and_mask();
 	HAL_ADC_Start_DMA(&hadc1, adc_data, 2);
 	/* USER CODE END 2 */
