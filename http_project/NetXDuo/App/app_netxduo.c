@@ -84,20 +84,19 @@ UINT ip_string_to_ulong(const CHAR *ip_str, ULONG *ip_addr);
 void adc_thread_entry(ULONG thread_input);
 /* USER CODE END PFP */
 /**
-  * @brief  Application NetXDuo Initialization.
-  * @param memory_ptr: memory pointer
-  * @retval int
-  */
-UINT MX_NetXDuo_Init(VOID *memory_ptr)
-{
-  UINT ret = NX_SUCCESS;
-  TX_BYTE_POOL *byte_pool = (TX_BYTE_POOL*)memory_ptr;
+ * @brief  Application NetXDuo Initialization.
+ * @param memory_ptr: memory pointer
+ * @retval int
+ */
+UINT MX_NetXDuo_Init(VOID *memory_ptr) {
+	UINT ret = NX_SUCCESS;
+	TX_BYTE_POOL *byte_pool = (TX_BYTE_POOL*) memory_ptr;
 
-  /* USER CODE BEGIN MX_NetXDuo_MEM_POOL */
+	/* USER CODE BEGIN MX_NetXDuo_MEM_POOL */
 	(void) byte_pool;
-  /* USER CODE END MX_NetXDuo_MEM_POOL */
+	/* USER CODE END MX_NetXDuo_MEM_POOL */
 
-  /* USER CODE BEGIN MX_NetXDuo_Init */
+	/* USER CODE BEGIN MX_NetXDuo_Init */
 	nx_system_initialize();
 	UINT status;
 	uint8_t tx_buffer[64];
@@ -146,9 +145,9 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
 	HAL_UART_Transmit(&huart6, tx_buffer,
 			sprintf((char*) tx_buffer, "ADC thread create\n"),
 			HAL_MAX_DELAY);
-  /* USER CODE END MX_NetXDuo_Init */
+	/* USER CODE END MX_NetXDuo_Init */
 
-  return ret;
+	return ret;
 }
 
 /* USER CODE BEGIN 1 */
@@ -156,37 +155,64 @@ void http_thread_entry(ULONG thread_input) {
 	CHAR dynamic_page[2048];
 	uint8_t flag = 0;
 	uint8_t tx_buffer[64];
-	//UINT status;
+
+	// Создание TCP сокета
 	nx_tcp_socket_create(&ip, &tcp_server_socket, "HTTP Server Socket",
 			NX_IP_NORMAL, NX_FRAGMENT_OKAY, NX_IP_TIME_TO_LIVE, 512, NX_NULL,
 			NX_NULL);
+
 	HAL_UART_Transmit(&huart6, tx_buffer,
 			sprintf((char*) tx_buffer, "HTTP Server Socket create\n"),
 			HAL_MAX_DELAY);
+
+	// Слушаем порт 80
 	nx_tcp_server_socket_listen(&ip, HTTP_SERVER_PORT, &tcp_server_socket, 5,
 	NX_NULL);
+
 	while (1) {
 		if (flag == 1) {
 			nx_ip_interface_address_set(&ip, 0, ip_addr, mask_addr);
 			flag = 0;
 		}
+
 		nx_tcp_server_socket_accept(&tcp_server_socket, TX_WAIT_FOREVER);
 
 		NX_PACKET *packet;
 		if (nx_tcp_socket_receive(&tcp_server_socket, &packet,
 		TX_WAIT_FOREVER) == NX_SUCCESS) {
+			CHAR *data = (CHAR*) packet->nx_packet_prepend_ptr;
 			HAL_UART_Transmit(&huart6, tx_buffer,
 					sprintf((char*) tx_buffer,
 							"Incoming reques to the http server\n"),
 					HAL_MAX_DELAY);
-			CHAR *data = (CHAR*) packet->nx_packet_prepend_ptr;
-			if (strncmp(data, "GET /setip?", 11) == 0) {
+			// AJAX-запрос на получение данных
+			if (strncmp(data, "GET /new_data", 13) == 0) {
+				int whole_temp = (int) mcu_temperature;
+				int frac_temp = (int) ((mcu_temperature - whole_temp) * 1000);
+				int whole_voltage = (int) vdd_voltage;
+				int frac_voltage = (int) ((vdd_voltage - whole_voltage) * 1000);
+
+				char data[128];
+				sprintf(data, "Temperature: %d.%03d°C<br>Voltage: %d.%03dV",
+						whole_temp, frac_temp, whole_voltage, frac_voltage);
+				HAL_UART_Transmit(&huart6, tx_buffer,
+						sprintf((char*) tx_buffer,
+								"Voltage and temperature updated\n"),
+						HAL_MAX_DELAY);
+				send_http_response(&tcp_server_socket,
+						"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n");
+				send_http_response(&tcp_server_socket, data);
+			}
+
+			// Обработка формы изменения IP/маски
+			else if (strncmp(data, "GET /setip?", 11) == 0) {
 				HAL_UART_Transmit(&huart6, tx_buffer,
 						sprintf((char*) tx_buffer,
 								"Request for a shift ip address and subnet mask\n"),
 						HAL_MAX_DELAY);
 				CHAR ip_str[16] = { 0 }, mask_str[16] = { 0 }, pass[16] = { 0 };
 				parse_query(data + 11, ip_str, mask_str, pass);
+
 				if (strcmp(pass, "admin") == 0) {
 					HAL_UART_Transmit(&huart6, tx_buffer,
 							sprintf((char*) tx_buffer,
@@ -200,16 +226,16 @@ void http_thread_entry(ULONG thread_input) {
 										"IP address and subnet mask is valid\n"),
 								HAL_MAX_DELAY);
 						send_http_response(&tcp_server_socket,
-								"HTTP/1.1 200 OK\r\n\r\nIP and subnet change.");
-						flag_change_ip_and_mask = 1;
+								"HTTP/1.1 200 OK\r\n\r\nIP and subnet changed.");
 						flag = 1;
+						flag_change_ip_and_mask = 1;
 					} else {
 						HAL_UART_Transmit(&huart6, tx_buffer,
 								sprintf((char*) tx_buffer,
 										"IP address and subnet mask is not valid\n"),
 								HAL_MAX_DELAY);
 						send_http_response(&tcp_server_socket,
-								"HTTP/1.1 400 Bad Request\r\n\r\nError ip/subnet mask.");
+								"HTTP/1.1 400 Bad Request\r\n\r\nInvalid IP or mask.");
 					}
 				} else {
 					HAL_UART_Transmit(&huart6, tx_buffer,
@@ -219,50 +245,60 @@ void http_thread_entry(ULONG thread_input) {
 					send_http_response(&tcp_server_socket,
 							"HTTP/1.1 403 Forbidden\r\n\r\nIncorrect password.");
 				}
-			} else {
+			}
+
+			// Главная страница с HTML и JavaScript
+			else {
 				HAL_UART_Transmit(&huart6, tx_buffer,
 						sprintf((char*) tx_buffer, "Default request\n"),
 						HAL_MAX_DELAY);
 				int whole_temp = (int) mcu_temperature;
-				int frac_temp = (int) ((mcu_temperature - whole_temp) * 1000); // 3 знака после запятой
+				int frac_temp = (int) ((mcu_temperature - whole_temp) * 1000);
 				int whole_voltage = (int) vdd_voltage;
-				int frac_voltage = (int) ((vdd_voltage - whole_voltage) * 1000); // 3 знака после запятой
+				int frac_voltage = (int) ((vdd_voltage - whole_voltage) * 1000);
+
 				sprintf(dynamic_page,
 						"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
-								"<html><head><title>STM32 Web</title>"
+								"<html><head><title>Radar MMS Project</title>"
 								"<style>"
 								"body { font-family: Arial; background-color: #f4f4f4; }"
 								".top-left { position: absolute; top: 10px; left: 10px; font-size: 24px; font-weight: bold; }"
 								".bottom-left { position: absolute; bottom: 20px; left: 10px; }"
 								"input { margin: 5px 0; }"
-								"</style></head><body>"
+								"</style>"
+								"<script>"
+								"function fetchData() {"
+								"  fetch('/new_data').then(r => r.text()).then(t => { document.getElementById('live').innerHTML = t; });"
+								"}"
+								"setInterval(fetchData, 1000);"
+								"</script></head><body>"
 
-								"<div class='top-left'>"
-								"Temperature value: %d.%03d<br>"
-								"Supply voltage: %d.%03d"
+								"<div id='live' class='top-left'>"
+								"Temperature: %d.%03d<br>"
+								"Voltage: %d.%03d"
 								"</div>"
 
 								"<div class='bottom-left'>"
-								"<h3>Settings IP and subnet mask IP</h3>"
+								"<h3>Settings IP and subnet mask</h3>"
 								"<form method='GET' action='/setip'>"
 								"IP-address:<br><input type='text' name='ip'><br>"
 								"Subnet mask:<br><input type='text' name='mask'><br>"
-								"Password:<br><input type='password' name='pass'><br><br>"
+								"Password:<br><input type='password' name='pass'><br>"
 								"<input type='submit' value='apply'>"
 								"</form>"
 								"</div>"
 
 								"</body></html>", whole_temp, frac_temp,
 						whole_voltage, frac_voltage);
+
 				send_http_response(&tcp_server_socket, dynamic_page);
 			}
 
 			nx_packet_release(packet);
 		}
-
 		nx_tcp_socket_disconnect(&tcp_server_socket, TX_WAIT_FOREVER);
 		HAL_UART_Transmit(&huart6, (const uint8_t*) tx_buffer,
-				sprintf((char*) tx_buffer, "Socket disconnect\n"),
+				sprintf((char*) tx_buffer, "Socket disconnected\n"),
 				HAL_MAX_DELAY);
 		nx_tcp_server_socket_unaccept(&tcp_server_socket);
 		nx_tcp_server_socket_relisten(&ip, 80, &tcp_server_socket);
