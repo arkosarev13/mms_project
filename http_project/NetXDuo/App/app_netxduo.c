@@ -40,6 +40,7 @@
 #define HTTP_SERVER_STACK_SIZE 12288
 #define HTTP_SERVER_PORT 80
 #define ADC_STACK_SIZE 1024
+#define ARP_STACK_SIZE 1024
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -63,6 +64,9 @@ UCHAR http_stack[HTTP_SERVER_STACK_SIZE];
 TX_THREAD adc_thread;
 UCHAR adc_stack[ADC_STACK_SIZE];
 
+TX_THREAD arp_thread;
+UCHAR arp_stack[ARP_STACK_SIZE];
+
 extern ULONG IP_ADDR;
 extern ULONG IP_MASK;
 extern volatile float mcu_temperature;
@@ -70,6 +74,7 @@ extern volatile float vdd_voltage;
 extern ADC_HandleTypeDef hadc1;
 extern uint32_t adc_data[];
 extern uint8_t adc_flag;
+extern ETH_HandleTypeDef heth;
 
 uint8_t flag_change_ip_and_mask = 0;
 ULONG ip_addr, mask_addr;
@@ -82,6 +87,7 @@ VOID parse_query(CHAR *query, CHAR *ip, CHAR *mask, CHAR *pass);
 VOID send_http_response(NX_TCP_SOCKET *socket, CHAR *data);
 UINT ip_string_to_ulong(const CHAR *ip_str, ULONG *ip_addr);
 void adc_thread_entry(ULONG thread_input);
+void arp_thread_entry(ULONG thread_input);
 /* USER CODE END PFP */
 /**
  * @brief  Application NetXDuo Initialization.
@@ -135,7 +141,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr) {
 	}
 
 	tx_thread_create(&http_thread, "HTTP thread", http_thread_entry, 0,
-			http_stack, HTTP_SERVER_STACK_SIZE, 4, 4, TX_NO_TIME_SLICE,
+			http_stack, HTTP_SERVER_STACK_SIZE, 5, 5, TX_NO_TIME_SLICE,
 			TX_AUTO_START);
 	HAL_UART_Transmit(&huart6, tx_buffer,
 			sprintf((char*) tx_buffer, "HTTP thread create\n"),
@@ -144,6 +150,11 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr) {
 			ADC_STACK_SIZE, 3, 3, TX_NO_TIME_SLICE, TX_AUTO_START);
 	HAL_UART_Transmit(&huart6, tx_buffer,
 			sprintf((char*) tx_buffer, "ADC thread create\n"),
+			HAL_MAX_DELAY);
+	tx_thread_create(&arp_thread, "ARP thread", arp_thread_entry, 0, arp_stack,
+			ARP_STACK_SIZE, 4, 4, TX_NO_TIME_SLICE, TX_AUTO_START);
+	HAL_UART_Transmit(&huart6, tx_buffer,
+			sprintf((char*) tx_buffer, "ARP thread create\n"),
 			HAL_MAX_DELAY);
 	/* USER CODE END MX_NetXDuo_Init */
 
@@ -354,6 +365,36 @@ void adc_thread_entry(ULONG thread_input) {
 		if (adc_flag == 1) {
 			HAL_ADC_Start_DMA(&hadc1, adc_data, 2);
 			adc_flag = 0;
+		}
+		tx_thread_sleep(100);
+	}
+}
+
+void arp_thread_entry(ULONG thread_input) {
+	uint32_t reg_value;
+	uint8_t tx_buffer[64];
+	HAL_StatusTypeDef result;
+	while (1) {
+		result = HAL_ETH_ReadPHYRegister(&heth, 1, 0x01, &reg_value);
+		if (result == HAL_OK && reg_value != 0xFFFF && reg_value != 0x0000) {
+			int linked_state = (reg_value & (1 << 2)) >> 2;
+			if (linked_state) {
+				HAL_UART_Transmit(&huart6, tx_buffer,
+						sprintf((char* )tx_buffer, "Valid link established\n"),
+						HAL_MAX_DELAY);
+				nx_arp_gratuitous_send(&ip, NX_NULL);
+				HAL_UART_Transmit(&huart6, tx_buffer,
+										sprintf((char* )tx_buffer, "ARP request sended\n"),
+										HAL_MAX_DELAY);
+			} else {
+				HAL_UART_Transmit(&huart6, tx_buffer,
+						sprintf((char* )tx_buffer, "Link not established\n"),
+						HAL_MAX_DELAY);
+			}
+		} else {
+			HAL_UART_Transmit(&huart6, tx_buffer,
+					sprintf((char*) tx_buffer, "PHY address not found\n"),
+					HAL_MAX_DELAY);
 		}
 		tx_thread_sleep(100);
 	}
